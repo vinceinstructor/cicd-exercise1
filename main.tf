@@ -6,6 +6,7 @@ provider "aws" {
 terraform {
   backend "s3" {
     bucket = "labexercise1"
+    region = "us-east-1"
     
   }
 }
