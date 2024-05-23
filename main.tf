@@ -1,91 +1,86 @@
-#Adding Provider details
+# Configure the AWS provider
 provider "aws" {
   region = "us-east-1"
-
 }
 terraform {
   backend "s3" {
     bucket = "labexercise1"
     region = "us-east-1"
-    
   }
 }
 
-#Create a custom VPC
-resource "aws_vpc" "myvpc" {
-  cidr_block = "10.0.0.0/16"
+
+# Create the VPC, subnets, internet gateway, and availability zones
+resource "aws_vpc" "Devops-vpc" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
   tags = {
-    "Name" = "MyProjectVPC"
+    Name = "Devops-vpc"
   }
 }
 
-#Create Subnets
-resource "aws_subnet" "Mysubnet01" {
-  vpc_id                  = aws_vpc.myvpc.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "us-east-1a"
-  map_public_ip_on_launch = true
+resource "aws_subnet" "subnet_a" {
+  vpc_id            = aws_vpc.Devops-vpc.id
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = "us-east-1a"
+
   tags = {
-    "Name" = "MyPublicSubnet01"
+    Name = "subnet_a"
   }
 }
 
-resource "aws_subnet" "Mysubnet02" {
-  vpc_id                  = aws_vpc.myvpc.id
-  cidr_block              = "10.0.2.0/24"
-  availability_zone       = "us-east-1b"
-  map_public_ip_on_launch = true
+resource "aws_subnet" "subnet_b" {
+  vpc_id            = aws_vpc.Devops-vpc.id
+  cidr_block        = "10.0.2.0/24"
+  availability_zone = "us-east-1b"
+
   tags = {
-    "Name" = "MyPublicSubnet02"
+    Name = "subnet_b"
   }
 }
 
-# Creating Internet Gateway IGW
-resource "aws_internet_gateway" "myigw" {
-  vpc_id = aws_vpc.myvpc.id
+resource "aws_internet_gateway" "my_igw" {
+  vpc_id = aws_vpc.Devops-vpc.id
+
   tags = {
-    "Name" = "MyIGW"
+    Name = "my_igw"
   }
 }
 
-# Creating Route Table
-resource "aws_route_table" "myroutetable" {
-  vpc_id = aws_vpc.myvpc.id
-  tags = {
-    "Name" = "MyPublicRouteTable"
-  }
-}
+# Create security group to allow ICMP, SSH, HTTP, and HTTPS traffic
+resource "aws_security_group" "my_security_group" {
+  name        = "my_security_group"
+  description = "Allow ICMP, SSH, HTTP, and HTTPS traffic"
 
-# Create a Route in the Route Table with a route to IGW
-resource "aws_route" "myigw_route" {
-  route_table_id         = aws_route_table.myroutetable.id
-  destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.myigw.id
-}
-
-# Associate Subnets with the Route Table
-resource "aws_route_table_association" "Mysubnet01_association" {
-  route_table_id = aws_route_table.myroutetable.id
-  subnet_id      = aws_subnet.Mysubnet01.id
-}
-
-resource "aws_route_table_association" "Mysubnet02_association" {
-  route_table_id = aws_route_table.myroutetable.id
-  subnet_id      = aws_subnet.Mysubnet02.id
-}
-
-
-#Adding security group
-resource "aws_security_group" "allow_tls" {
-  name_prefix = "allow_tls_"
-  description = "Allow TLS inbound traffic"
-  vpc_id      = aws_vpc.myvpc.id
+  vpc_id = aws_vpc.Devops-vpc.id
 
   ingress {
-    description = "TLS from VPC"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -95,194 +90,53 @@ resource "aws_security_group" "allow_tls" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-}
-
-#Creating IAM role for EKS
-resource "aws_iam_role" "master" {
-  name = "ed-eks-master"
-
-  assume_role_policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Effect" : "Allow",
-        "Principal" : {
-          "Service" : "eks.amazonaws.com"
-        },
-        "Action" : "sts:AssumeRole"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKSClusterPolicy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
-  role       = aws_iam_role.master.name
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKSServicePolicy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
-  role       = aws_iam_role.master.name
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKSVPCResourceController" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
-  role       = aws_iam_role.master.name
-}
-
-resource "aws_iam_role" "worker" {
-  name = "ed-eks-worker"
-
-  assume_role_policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Effect" : "Allow",
-        "Principal" : {
-          "Service" : "ec2.amazonaws.com"
-        },
-        "Action" : "sts:AssumeRole"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "autoscaler" {
-  name = "ed-eks-autoscaler-policy"
-  policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Action" : [
-          "autoscaling:DescribeAutoScalingGroups",
-          "autoscaling:DescribeAutoScalingInstances",
-          "autoscaling:DescribeTags",
-          "autoscaling:DescribeLaunchConfigurations",
-          "autoscaling:SetDesiredCapacity",
-          "autoscaling:TerminateInstanceInAutoScalingGroup",
-          "ec2:DescribeLaunchTemplateVersions"
-        ],
-        "Effect" : "Allow",
-        "Resource" : "*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-  role       = aws_iam_role.worker.name
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKS_CNI_Policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-  role       = aws_iam_role.worker.name
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonSSMManagedInstanceCore" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-  role       = aws_iam_role.worker.name
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  role       = aws_iam_role.worker.name
-}
-
-resource "aws_iam_role_policy_attachment" "x-ray" {
-  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
-  role       = aws_iam_role.worker.name
-}
-
-resource "aws_iam_role_policy_attachment" "s3" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
-  role       = aws_iam_role.worker.name
-}
-
-resource "aws_iam_role_policy_attachment" "autoscaler" {
-  policy_arn = aws_iam_policy.autoscaler.arn
-  role       = aws_iam_role.worker.name
-}
-
-resource "aws_iam_instance_profile" "worker" {
-  depends_on = [aws_iam_role.worker]
-  name       = "ed-eks-worker-new-profile"
-  role       = aws_iam_role.worker.name
-}
-
-
-
-#Creating EKS Cluster
-resource "aws_eks_cluster" "eks" {
-  name     = "pc-eks"
-  role_arn = aws_iam_role.master.arn
-
-  vpc_config {
-    subnet_ids = [aws_subnet.Mysubnet01.id, aws_subnet.Mysubnet02.id]
-  }
 
   tags = {
-    "Name" = "MyEKS"
+    Name = "my_security_group"
   }
-
-  depends_on = [
-    aws_iam_role_policy_attachment.AmazonEKSClusterPolicy,
-    aws_iam_role_policy_attachment.AmazonEKSServicePolicy,
-    aws_iam_role_policy_attachment.AmazonEKSVPCResourceController,
-  ]
 }
 
-
-resource "aws_key_pair" "lab_test" {
-  key_name   = "lab_test"
-  public_key = file("~/.ssh/id_rsa.pub")
-}
-
-
-resource "aws_instance" "kubectl-server" {
-  ami                         = "ami-0fe630eb857a6ec83" # Replace with a valid AMI ID for ap-south-1 region
-  key_name                    = aws_key_pair.lab_test.key_name            # Make sure the key pair exists in ap-south-1 region
-  instance_type               = "t2.micro"
-  associate_public_ip_address = true
-  subnet_id                   = aws_subnet.Mysubnet01.id
-  vpc_security_group_ids      = [aws_security_group.allow_tls.id]
+# Create two EC2 instances
+resource "aws_instance" "ec2_instance_1" {
+  ami                    = "ami-036c2987dfef867fb" # Specify your AMI ID here
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.subnet_a.id
+  vpc_security_group_ids = [aws_security_group.my_security_group.id]
 
   tags = {
-    Name = "kubectl"
+    Name = "ec2_instance_1"
   }
 }
 
-resource "aws_eks_node_group" "node-grp" {
-  cluster_name    = aws_eks_cluster.eks.name
-  node_group_name = "pc-node-group"
-  node_role_arn   = aws_iam_role.worker.arn
-  subnet_ids      = [aws_subnet.Mysubnet01.id, aws_subnet.Mysubnet02.id]
-  capacity_type   = "ON_DEMAND"
-  disk_size       = 20
-  instance_types  = ["t2.small"]
+resource "aws_instance" "ec2_instance_2" {
+  ami                    = "ami-036c2987dfef867fb" # Specify your AMI ID here
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.subnet_b.id
+  vpc_security_group_ids = [aws_security_group.my_security_group.id]
 
-  remote_access {
-    ec2_ssh_key               = aws_key_pair.lab_test.key_name 
-    source_security_group_ids = [aws_security_group.allow_tls.id]
+  tags = {
+    Name = "ec2_instance_2"
   }
+}
 
-  labels = {
-    env = "dev"
+resource "aws_instance" "web-app1" {
+  ami                    = "ami-04b70fa74e45c3917" # Specify your AMI ID here
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.subnet_a.id
+  vpc_security_group_ids = [aws_security_group.my_security_group.id]
+
+  tags = {
+    Name = "web-app1"
   }
+}
 
-  scaling_config {
-    desired_size = 4
-    max_size     = 4
-    min_size     = 4
+resource "aws_instance" "web-app2" {
+  ami                    = "ami-04b70fa74e45c3917" # Specify your AMI ID here
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.subnet_b.id
+  vpc_security_group_ids = [aws_security_group.my_security_group.id]
+
+  tags = {
+    Name = "web-app2"
   }
-
-  update_config {
-    max_unavailable = 1
-  }
-
-  depends_on = [
-    aws_iam_role_policy_attachment.AmazonEKSWorkerNodePolicy,
-    aws_iam_role_policy_attachment.AmazonEKS_CNI_Policy,
-    aws_iam_role_policy_attachment.AmazonEC2ContainerRegistryReadOnly,
-  ]
 }
